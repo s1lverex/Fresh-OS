@@ -1,0 +1,99 @@
+name: live-demo
+
+# Boots Fresh OS in QEMU on a GitHub-hosted runner (a cloud VM) and publishes a
+# live, read-only view of its screen through a temporary public Cloudflare
+# tunnel. The public URL appears in the name of the "LIVE ..." step and in the
+# log. Start it again from the Actions tab ("Run workflow").
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "How long to keep the stream up (max 330)"
+        default: "180"
+  push:
+    branches: [claude/gallant-babbage-8skeq2]
+    paths: [".github/workflows/live-demo.yml", "tools/demo/**"]
+
+concurrency:
+  group: live-demo
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain and QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm nasm make python3 mtools qemu-system-x86
+
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
+          fi
+          ls -l /dev/kvm || echo "no KVM: software emulation will be used"
+
+      - name: Build Fresh OS
+        run: make -j"$(nproc)" image
+
+      - name: Boot the VM and start the stream server
+        run: |
+          MIN="${{ inputs.minutes }}"
+          [ -n "$MIN" ] || MIN=180
+          [ "$MIN" -le 330 ] || MIN=330
+          mkdir -p /tmp/fresh
+          cp build/fresh-os.img /tmp/fresh/disk.img
+          nohup python3 tools/demo/autopilot.py --image /tmp/fresh/disk.img --dir /tmp/fresh --minutes "$MIN" \
+            > /tmp/fresh/autopilot.log 2>&1 &
+          nohup python3 tools/demo/stream_server.py --dir /tmp/fresh --port 8080 > /tmp/fresh/stream.log 2>&1 &
+          for i in $(seq 90); do
+            curl -sf http://127.0.0.1:8080/frame.png -o /dev/null && break
+            sleep 2
+          done
+          cat /tmp/fresh/autopilot.log
+          curl -sf http://127.0.0.1:8080/health
+
+      - name: Open the public tunnel
+        id: tunnel
+        run: |
+          curl -fsSL -o /tmp/cloudflared \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x /tmp/cloudflared
+          nohup /tmp/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8080 > /tmp/fresh/tunnel.log 2>&1 &
+          URL=""
+          for i in $(seq 60); do
+            URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/fresh/tunnel.log | head -1)
+            [ -n "$URL" ] && break
+            sleep 2
+          done
+          [ -n "$URL" ] || { cat /tmp/fresh/tunnel.log; exit 1; }
+          echo "public=$URL" >> "$GITHUB_OUTPUT"
+          # check the stream from the public internet side
+          code=000
+          for i in $(seq 40); do
+            code=$(curl -s -o /tmp/fresh/check.png -w '%{http_code}' "$URL/frame.png" || true)
+            [ "$code" = 200 ] && break
+            sleep 3
+          done
+          echo "public check: HTTP $code, $(stat -c %s /tmp/fresh/check.png 2>/dev/null || echo 0) bytes"
+          echo "::notice title=Fresh OS live stream::$URL"
+
+      - name: "LIVE ${{ steps.tunnel.outputs.public }}"
+        run: |
+          echo "Stream: ${{ steps.tunnel.outputs.public }}"
+          while pgrep -f tools/demo/autopilot.py > /dev/null; do
+            sleep 60
+            echo "$(date -u +%H:%M:%S) $(cat /tmp/fresh/status.json) $(tail -n 1 /tmp/fresh/autopilot.log)"
+            pgrep -f cloudflared > /dev/null || { echo "tunnel died"; tail -20 /tmp/fresh/tunnel.log; exit 1; }
+          done
+          tail -n 5 /tmp/fresh/autopilot.log
