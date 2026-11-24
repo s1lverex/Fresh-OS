@@ -534,7 +534,6 @@ def gui_desktop_appears():
             log = wait_log(vm, "opened Terminal", 30)
             time.sleep(1.0)  # let the first frame reach the screen
             check("started 1024x768" in log, "desktop resolution: " + log)
-            check("screen handed to desktop" in vm.text, "kernel did not hand the screen to the desktop")
             shot = screenshot(vm)
             eq(shot[:2], (SCR_W, SCR_H), "%s screen size" % fw)
             check(near(pixel(shot, 600, SCR_H - 10), 0x111820), "%s: taskbar missing" % fw)

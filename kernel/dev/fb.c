@@ -76,8 +76,7 @@ long fb_acquire(uint64_t uinfo)
         owner_pid = current->pid;
         mapped_bytes = bytes;
         console_suspend(true);
-        input_grab(current->pid);
-        kprintf("fb: screen handed to %s[%d]\n", current->name, current->pid);
+        input_grab(current->pid); /* no log line: it would land after the shell prompt */
     }
     return 0;
 }

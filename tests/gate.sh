@@ -17,6 +17,6 @@ for i in $(seq 1 "$RUNS"); do
   python3 tests/e2e/run_all.py --soak "$SOAK" > "$LOG/run$i-e2e.log" 2>&1
   rc=$?
   grep -E "end-to-end tests passed" "$LOG/run$i-e2e.log" | sed "s/^/gate: run $i: /"
-  [ $rc -eq 0 ] || { echo "gate: run $i: end-to-end FAILED"; grep -E "^\[ FAIL" -A3 "$LOG/run$i-e2e.log"; exit 1; }
+  [ $rc -eq 0 ] || { echo "gate: run $i: end-to-end FAILED"; grep -E "^\[ FAIL" -A25 "$LOG/run$i-e2e.log"; exit 1; }
 done
 echo "gate: PASSED - $RUNS consecutive full runs, zero failures"
