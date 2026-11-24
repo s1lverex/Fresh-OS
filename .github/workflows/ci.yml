@@ -1,0 +1,25 @@
+name: build-and-test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain and emulator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm nasm make python3 mtools qemu-system-x86 ovmf gcc
+      - name: Build disk image
+        run: make -j"$(nproc)" image
+      - name: Full test suite
+        run: make test SOAK=120
+      - name: Upload disk image
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-os-img
+          path: build/fresh-os.img
