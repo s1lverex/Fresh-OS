@@ -5,6 +5,7 @@ make test                 # full gate: host tests, static analysis, all QEMU tes
 make test SOAK=60         # same with a 1-minute soak instead of 10 minutes
 make host-test            # host unit tests only
 make analyze              # clang static analyzer only
+tests/gate.sh 3           # release gate: the full suite 3 times in a row, no failures allowed
 python3 tests/e2e/run_all.py --list            # list end-to-end tests
 python3 tests/e2e/run_all.py --only editor     # run selected tests
 ```

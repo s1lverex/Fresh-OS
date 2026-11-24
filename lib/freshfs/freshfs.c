@@ -113,6 +113,10 @@ static int read_inode(ffs_fs *fs, uint32_t ino, struct ffs_inode *out)
     if (!rc)
         memcpy(out, b + (ino % FFS_INODES_PER_BLOCK) * FFS_INODE_SIZE, sizeof(*out));
     ffs_free(b);
+    /* a damaged inode must not send callers into enormous loops */
+    if (!rc && (out->size > FFS_MAX_FILE_BLOCKS * FFS_BLOCK ||
+                (out->type == FFS_T_DIR && out->size % FFS_BLOCK)))
+        rc = -FFS_EIO;
     return rc;
 }
 

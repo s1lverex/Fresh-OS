@@ -58,7 +58,8 @@ static int walk(ffs_fs *fs, uint32_t dir, int depth, int *files)
             (*files)++;
             uint64_t off = 0;
             int64_t n;
-            while ((n = ffs_read(fs, e.ino, off, buf, sizeof(buf))) > 0)
+            /* bounded: a damaged inode may claim a huge (sparse) size */
+            while (off < (1u << 20) && (n = ffs_read(fs, e.ino, off, buf, sizeof(buf))) > 0)
                 off += (uint64_t)n;
         }
     }
