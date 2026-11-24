@@ -1,0 +1,2 @@
+# Fresh OS startup script - run once by init at boot.
+cat /etc/motd
