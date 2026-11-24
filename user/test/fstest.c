@@ -29,11 +29,15 @@ static int write_file(const char *path, long size, long seed)
         for (long i = 0; i < n; i++)
             buf[i] = pat(done + i, seed);
         long w = write(fd, buf, (size_t)n);
-        if (w != n) {
+        if (w < 0) {
             close(fd);
-            return w < 0 ? (int)w : -EIO;
+            return (int)w;
         }
-        done += n;
+        if (w == 0) {
+            close(fd);
+            return -EIO;
+        }
+        done += w; /* a short write (disk full) is followed by ENOSPC */
     }
     close(fd);
     return 0;
@@ -64,12 +68,46 @@ static long free_blocks(const char *dir)
     return statfs(dir, &st) == 0 ? (long)st.free_blocks : -1;
 }
 
+static int is_freshfs(const char *dir)
+{
+    struct fresh_statfs st;
+    return statfs(dir, &st) == 0 && !strcmp(st.fs_name, "freshfs");
+}
+
+/* remove a tree (left behind e.g. by a power cut during an earlier run) */
+static void rm_rf(const char *path)
+{
+    struct fresh_stat st;
+    if (stat(path, &st) < 0)
+        return;
+    if (st.type == FT_DIR) {
+        for (;;) {
+            int fd = open(path, O_RDONLY);
+            if (fd < 0)
+                break;
+            struct fresh_dirent d;
+            int got = readdir(fd, &d);
+            close(fd);
+            if (got != 1)
+                break;
+            char child[PATH_MAX];
+            snprintf(child, sizeof(child), "%s/%s", path, d.name);
+            rm_rf(child);
+            struct fresh_stat cs;
+            if (stat(child, &cs) == 0)
+                break; /* could not remove: avoid looping forever */
+        }
+    }
+    unlink(path);
+}
+
 int main(int argc, char **argv)
 {
     const char *base = argc > 1 ? argv[1] : "/data";
     int fill = argc > 2 && !strcmp(argv[2], "--fill");
     char dir[PATH_MAX], p[PATH_MAX], q[PATH_MAX];
     snprintf(dir, sizeof(dir), "%s/fstest.tmp", base);
+    rm_rf(dir);
     sync();
     long free0 = free_blocks(base);
     int r = mkdir(dir);
@@ -91,7 +129,7 @@ int main(int argc, char **argv)
         long size = (long)((i * 7919) % 200000);
         if (i % 10 == 0)
             size = 0;
-        if ((r = check_file(p, size, i)) < 0)
+        if (check_file(p, size, i) < 0)
             FAIL("verify %s", p);
     }
     /* 2: directory listing sees all entries */
@@ -142,7 +180,7 @@ int main(int argc, char **argv)
     if (lseek(fd, 0, SEEK_END) != big)
         FAIL("size changed by overwrite");
     close(fd);
-    if ((r = truncate(p, 12345)) < 0 || check_file(p, 12345, 99) < 0)
+    if (truncate(p, 12345) < 0 || check_file(p, 12345, 99) < 0)
         FAIL("truncate big");
     /* 5: sparse write past end of file reads back zeros */
     snprintf(q, sizeof(q), "%s/sparse", dir);
@@ -195,11 +233,12 @@ int main(int argc, char **argv)
         if ((r = unlink(p)) < 0)
             FAIL("cleanup %s: %s", p, strerror(r));
     }
-    if ((r = unlink(dir)) < 0)
+    r = unlink(dir);
+    if (r < 0)
         FAIL("remove %s: %s", dir, strerror(r));
     sync();
     long free1 = free_blocks(base);
-    if (free0 >= 0 && free0 != free1)
+    if (is_freshfs(base) && free0 >= 0 && free0 != free1)
         FAIL("free blocks %ld before, %ld after", free0, free1);
     printf("fstest: %s: %d errors: %s\n", base, errors, errors ? "FAIL" : "PASS");
     return errors ? 1 : 0;

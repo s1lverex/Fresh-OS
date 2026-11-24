@@ -26,7 +26,9 @@ int elf_load(uint64_t *pml4, const uint8_t *data, uint64_t size, struct elf_imag
 {
     if (size < sizeof(struct elf64_ehdr))
         return -ENOEXEC;
-    const struct elf64_ehdr *eh = (const struct elf64_ehdr *)data;
+    struct elf64_ehdr ehdr;
+    memcpy(&ehdr, data, sizeof(ehdr));
+    const struct elf64_ehdr *eh = &ehdr;
     if (memcmp(eh->ident, "\x7f" "ELF", 4) || eh->ident[4] != 2 || eh->ident[5] != 1)
         return -ENOEXEC;
     if (eh->type != 2 || eh->machine != 62 || eh->phentsize != sizeof(struct elf64_phdr))
@@ -34,15 +36,20 @@ int elf_load(uint64_t *pml4, const uint8_t *data, uint64_t size, struct elf_imag
     if (eh->phnum == 0 || eh->phnum > 32 || eh->phoff > size ||
         eh->phoff + (uint64_t)eh->phnum * sizeof(struct elf64_phdr) > size)
         return -ENOEXEC;
-    uint64_t end = 0;
+    uint64_t end = 0, total = 0;
     bool entry_ok = false;
     for (int i = 0; i < eh->phnum; i++) {
-        const struct elf64_phdr *ph = (const struct elf64_phdr *)(data + eh->phoff + i * sizeof(*ph));
+        struct elf64_phdr phdr; /* copied: the table may be unaligned */
+        memcpy(&phdr, data + eh->phoff + i * sizeof(phdr), sizeof(phdr));
+        const struct elf64_phdr *ph = &phdr;
         if (ph->type != PT_LOAD || ph->memsz == 0)
             continue;
         if (ph->filesz > ph->memsz || ph->offset > size || ph->filesz > size - ph->offset)
             return -ENOEXEC;
         if (ph->vaddr < USER_BASE || ph->vaddr + ph->memsz < ph->vaddr || ph->vaddr + ph->memsz > USER_HEAP_LIMIT)
+            return -ENOEXEC;
+        total += ph->memsz;
+        if (total > (1ULL << 30)) /* refuse absurd images instead of eating all RAM */
             return -ENOEXEC;
         uint64_t flags = 0;
         if (ph->flags & PF_W)

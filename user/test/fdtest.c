@@ -25,7 +25,7 @@ int main(void)
     for (int i = 0; i < n; i++)
         if (close(fds[i]) != 0)
             bad = 1;
-    if (close(fds[0]) != -EBADF)
+    if (n > 0 && close(fds[0]) != -EBADF)
         bad = 1;
     int fd = open("/etc/motd", O_RDONLY);
     int d = dup(fd);

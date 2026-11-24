@@ -195,58 +195,79 @@ static int tokenize(const char *line, struct token *toks)
             n++;
             continue;
         }
-        struct sbuf b = {0, 0, 0};
-        sb_putc(&b, 0);
-        b.len = 0;
+        /* find the end of the word; quotes are kept for expansion later */
+        const char *start = p;
         while (*p && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r' && !is_op_char(*p)) {
-            if (*p == '\'') {
-                p++;
-                while (*p && *p != '\'')
-                    sb_putc(&b, *p++);
-                if (*p != '\'') {
-                    fprintf(stderr, "sh: unterminated quote\n");
-                    free(b.s);
-                    free_tokens(toks, n);
-                    return -1;
+            if (*p == '\'' || *p == '"') {
+                char q = *p++;
+                while (*p && *p != q) {
+                    if (q == '"' && *p == '\\' && p[1])
+                        p++;
+                    p++;
                 }
-                p++;
-            } else if (*p == '"') {
-                p++;
-                while (*p && *p != '"') {
-                    if (*p == '\\' && (p[1] == '"' || p[1] == '\\' || p[1] == '$')) {
-                        sb_putc(&b, p[1]);
-                        p += 2;
-                    } else if (*p == '$') {
-                        p = expand_var(p + 1, &b);
-                    } else {
-                        sb_putc(&b, *p++);
-                    }
-                }
-                if (*p != '"') {
+                if (*p != q) {
                     fprintf(stderr, "sh: unterminated quote\n");
-                    free(b.s);
                     free_tokens(toks, n);
                     return -1;
                 }
                 p++;
             } else if (*p == '\\' && p[1]) {
-                sb_putc(&b, p[1]);
                 p += 2;
-            } else if (*p == '$') {
-                p = expand_var(p + 1, &b);
             } else {
-                if (*p == '*' || *p == '?' || *p == '[')
-                    t->glob = 1;
-                sb_putc(&b, *p++);
+                p++;
             }
         }
         t->type = T_WORD;
-        t->text = b.s;
+        t->text = strndup(start, (size_t)(p - start));
         n++;
     }
     toks[n].type = T_END;
     toks[n].text = NULL;
     return n;
+}
+
+/* quote removal + variable expansion of one raw word; *glob set if an
+ * unquoted wildcard was seen. Returns a malloc'd string. */
+static char *expand_word(const char *p, int *glob)
+{
+    struct sbuf b = {0, 0, 0};
+    sb_putc(&b, 0);
+    b.len = 0;
+    b.s[0] = 0;
+    *glob = 0;
+    while (*p) {
+        if (*p == '\'') {
+            p++;
+            while (*p && *p != '\'')
+                sb_putc(&b, *p++);
+            if (*p)
+                p++;
+        } else if (*p == '"') {
+            p++;
+            while (*p && *p != '"') {
+                if (*p == '\\' && (p[1] == '"' || p[1] == '\\' || p[1] == '$')) {
+                    sb_putc(&b, p[1]);
+                    p += 2;
+                } else if (*p == '$') {
+                    p = expand_var(p + 1, &b);
+                } else {
+                    sb_putc(&b, *p++);
+                }
+            }
+            if (*p)
+                p++;
+        } else if (*p == '\\' && p[1]) {
+            sb_putc(&b, p[1]);
+            p += 2;
+        } else if (*p == '$') {
+            p = expand_var(p + 1, &b);
+        } else {
+            if (*p == '*' || *p == '?' || *p == '[')
+                *glob = 1;
+            sb_putc(&b, *p++);
+        }
+    }
+    return b.s;
 }
 
 /* ------------------------------------------------------------ globbing */
@@ -408,18 +429,30 @@ static int parse_pipeline(struct token *toks, int *pos, struct cmd *cmds, int ma
                     fprintf(stderr, "sh: syntax error: missing file name after redirection\n");
                     return -1;
                 }
+                int g;
+                char *target = expand_word(toks[i + 1].text, &g);
+                if (c->nowned < MAX_WORDS)
+                    c->owned[c->nowned++] = target;
                 if (t == T_LT)
-                    c->in = toks[i + 1].text;
+                    c->in = target;
                 else {
-                    c->out = toks[i + 1].text;
+                    c->out = target;
                     c->append = t == T_GTGT;
                 }
                 i += 2;
                 continue;
             }
-            if (toks[i].glob) {
+            int g;
+            char *word = expand_word(toks[i].text, &g);
+            if (c->nowned >= MAX_WORDS) {
+                free(word);
+                fprintf(stderr, "sh: too many words\n");
+                return -1;
+            }
+            c->owned[c->nowned++] = word;
+            if (g) {
                 char *matches[MAX_ARGS];
-                int m = glob_expand(toks[i].text, matches, MAX_ARGS);
+                int m = glob_expand(word, matches, MAX_ARGS);
                 if (m > 0) {
                     for (int k = 0; k < m; k++) {
                         if (c->argc >= MAX_ARGS || c->nowned >= MAX_WORDS) {
@@ -437,7 +470,7 @@ static int parse_pipeline(struct token *toks, int *pos, struct cmd *cmds, int ma
                 fprintf(stderr, "sh: too many arguments\n");
                 return -1;
             }
-            c->argv[c->argc++] = toks[i].text;
+            c->argv[c->argc++] = word;
             i++;
         }
         c->argv[c->argc] = NULL;
@@ -594,12 +627,14 @@ static int run_tokens(struct token *toks)
 {
     int pos = 0;
     int skip = 0;
-    struct cmd *cmds = malloc(sizeof(struct cmd) * 16);
+    struct cmd *cmds = calloc(16, sizeof(struct cmd));
     if (!cmds)
         return 1;
     while (toks[pos].type != T_END && should_exit < 0) {
         int nc = parse_pipeline(toks, &pos, cmds, 16);
         if (nc < 0) {
+            for (int k = 0; k < 16; k++)
+                cmd_free(&cmds[k]);
             last_status = 2;
             break;
         }
@@ -981,6 +1016,7 @@ int main(int argc, char **argv)
         hist_add(line);
         run_line(line);
     }
+    free(line);
     ttymode(TTY_MODE_COOKED);
     return should_exit >= 0 ? should_exit : last_status;
 }

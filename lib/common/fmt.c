@@ -29,6 +29,7 @@ static void emit_num(struct out *o, uint64_t v, int neg, unsigned base, int uppe
     char tmp[24];
     int n = 0;
     const char *digits = upper ? "0123456789ABCDEF" : "0123456789abcdef";
+    int prefix = alt && base == 16 && v != 0 ? 2 : 0; /* C: no 0x for zero */
     if (v == 0 && prec != 0)
         tmp[n++] = '0';
     while (v) {
@@ -37,7 +38,6 @@ static void emit_num(struct out *o, uint64_t v, int neg, unsigned base, int uppe
     }
     int zeros = prec > n ? prec - n : 0;
     char sign = neg ? '-' : sign_ch;
-    int prefix = alt && base == 16 ? 2 : 0;
     int len = n + zeros + (sign ? 1 : 0) + prefix;
     if (!left && !(zero && prec < 0))
         pad(o, ' ', width - len);

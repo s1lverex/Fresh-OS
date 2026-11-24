@@ -55,7 +55,7 @@ static void parse_s5(const uint8_t *dsdt, uint32_t len)
             continue;
         p += ((*p >> 6) & 3) + 1; /* PkgLength */
         p++;                      /* NumElements */
-        uint16_t vals[2];
+        uint16_t vals[2] = {0, 0};
         for (int k = 0; k < 2 && p < end; k++) {
             if (*p == 0x0A) { /* BytePrefix */
                 p++;

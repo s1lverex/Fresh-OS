@@ -6,6 +6,11 @@
 #include <fresh.h>
 
 static volatile int forever = 1;
+/* addresses come from volatile variables so compilers cannot prove (and
+ * complain about) the deliberate bad accesses */
+static volatile uintptr_t addr_null = 0, addr_8 = 8, addr_kdata = 0xFFFF800000100000ULL,
+                          addr_kimage = 0xFFFFFFFF80000000ULL, addr_noncanon = 0x8000000000000000ULL;
+#define AT(a) (*(volatile uint64_t *)(a))
 static int depth(int n)
 {
     volatile char pad[256];
@@ -27,19 +32,19 @@ static int check(const char *what, long got, long want)
 int main(int argc, char **argv)
 {
     if (argc < 2) {
-        printf("usage: crashtest null|read0|kwrite|kread|nx|priv|io|div0|ud|stack|gp|badptr|bigalloc|exitcode\n");
+        printf("usage: crashtest null|read0|kwrite|kread|nx|priv|io|div0|ud|stack|gp|badptr|bigalloc|exitcode|spin|oom\n");
         return 2;
     }
     const char *m = argv[1];
     fflush(stdout);
     if (!strcmp(m, "null"))
-        *(volatile int *)0 = 1;
+        AT(addr_null) = 1;
     else if (!strcmp(m, "read0"))
-        printf("%d\n", *(volatile int *)8);
+        printf("%llx\n", (unsigned long long)AT(addr_8));
     else if (!strcmp(m, "kwrite"))
-        *(volatile uint64_t *)0xFFFF800000100000ULL = 1;
+        AT(addr_kdata) = 1;
     else if (!strcmp(m, "kread"))
-        printf("%llx\n", (unsigned long long)*(volatile uint64_t *)0xFFFFFFFF80000000ULL);
+        printf("%llx\n", (unsigned long long)AT(addr_kimage));
     else if (!strcmp(m, "nx")) {
         static unsigned char code[16] = {0xC3};
         ((void (*)(void))code)();
@@ -47,15 +52,14 @@ int main(int argc, char **argv)
         __asm__ volatile("cli; hlt");
     else if (!strcmp(m, "io"))
         __asm__ volatile("outb %%al, $0x80" ::"a"(0));
-    else if (!strcmp(m, "div0")) {
-        volatile int z = 0;
-        printf("%d\n", 10 / z);
-    } else if (!strcmp(m, "ud"))
+    else if (!strcmp(m, "div0"))
+        __asm__ volatile("xor %%ecx, %%ecx; mov $10, %%eax; xor %%edx, %%edx; div %%ecx" ::: "eax", "ecx", "edx");
+    else if (!strcmp(m, "ud"))
         __asm__ volatile("ud2");
     else if (!strcmp(m, "stack"))
         return depth(0);
     else if (!strcmp(m, "gp"))
-        printf("%llx\n", (unsigned long long)*(volatile uint64_t *)0x8000000000000000ULL);
+        printf("%llx\n", (unsigned long long)AT(addr_noncanon));
     else if (!strcmp(m, "badptr")) {
         int bad = 0;
         char buf[16];
@@ -81,10 +85,33 @@ int main(int argc, char **argv)
     } else if (!strcmp(m, "bigalloc")) {
         void *p = malloc((size_t)1 << 39);
         long r = (long)sbrk((long)1 << 46);
-        printf("crashtest: bigalloc %s\n", (!p && r == -ENOMEM) ? "OK" : "FAILED");
-        return (!p && r == -ENOMEM) ? 0 : 1;
-    } else if (!strcmp(m, "exitcode"))
+        int good = !p && r == -ENOMEM;
+        free(p);
+        printf("crashtest: bigalloc %s\n", good ? "OK" : "FAILED");
+        return good ? 0 : 1;
+    } else if (!strcmp(m, "exitcode")) {
         return 42;
+    } else if (!strcmp(m, "spin")) { /* burn CPU forever: tests preemption */
+        for (volatile unsigned long i = 0;; i++)
+            ;
+    } else if (!strcmp(m, "oom")) { /* take all memory, touch it, give it back */
+        size_t total = 0;
+        void *chunks[16384];
+        int n = 0;
+        while (n < 16384) {
+            char *p = malloc(1 << 20);
+            if (!p)
+                break;
+            for (size_t k = 0; k < (1 << 20); k += 4096)
+                p[k] = 1;
+            chunks[n++] = p;
+            total += 1 << 20;
+        }
+        for (int i = 0; i < n; i++)
+            free(chunks[i]);
+        printf("crashtest: oom got %zu MiB before malloc failed: OK\n", total >> 20);
+        return 0;
+    }
     printf("crashtest: still alive after '%s'\n", m);
     return 99;
 }

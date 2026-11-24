@@ -6,22 +6,24 @@
 
 #define SLOTS 512
 
+unsigned char *ptr[SLOTS]; /* global: allocations stay reachable */
+size_t len[SLOTS];
+
 int main(int argc, char **argv)
 {
     int rounds = argc > 1 ? atoi(argv[1]) : 20000;
-    static unsigned char *ptr[SLOTS];
-    static size_t len[SLOTS];
     srand(12345);
     int errors = 0;
     for (int r = 0; r < rounds; r++) {
         int s = rand() % SLOTS;
-        if (ptr[s]) {
+        unsigned char *cur = ptr[s];
+        if (cur) {
             for (size_t k = 0; k < len[s]; k += 97)
-                if (ptr[s][k] != (unsigned char)(s ^ k))
+                if (cur[k] != (unsigned char)(s ^ k))
                     errors++;
             if (rand() % 3 == 0) {
                 size_t nl = (size_t)(rand() % 20000) + 1;
-                unsigned char *q = realloc(ptr[s], nl);
+                unsigned char *q = realloc(cur, nl);
                 if (!q) {
                     errors++;
                     continue;
@@ -35,19 +37,20 @@ int main(int argc, char **argv)
                 for (size_t k = 0; k < nl; k++)
                     q[k] = (unsigned char)(s ^ k);
             } else {
-                free(ptr[s]);
+                free(cur);
                 ptr[s] = NULL;
             }
         } else {
             size_t n = (size_t)(rand() % 3 == 0 ? rand() % 200000 : rand() % 300) + 1;
-            ptr[s] = malloc(n);
-            if (!ptr[s]) {
+            unsigned char *q = malloc(n);
+            if (!q) {
                 errors++;
                 continue;
             }
-            len[s] = n;
             for (size_t k = 0; k < n; k++)
-                ptr[s][k] = (unsigned char)(s ^ k);
+                q[k] = (unsigned char)(s ^ k);
+            ptr[s] = q;
+            len[s] = n;
         }
     }
     for (int s = 0; s < SLOTS; s++)

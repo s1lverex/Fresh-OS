@@ -143,7 +143,7 @@ $(BUILD)/fresh-os.img: $(IMAGE_DEPS)
 $(BUILD)/fresh-os-test.img: $(IMAGE_DEPS)
 	$(call mkimage,testmode,$@)
 
-.PHONY: all image test-image run run-uefi test host-test clean
+.PHONY: all image test-image gcc-image run run-uefi test host-test analyze clean
 all: image
 image: $(BUILD)/fresh-os.img
 test-image: $(BUILD)/fresh-os-test.img
@@ -161,11 +161,19 @@ run-uefi: $(BUILD)/fresh-os.img
 	  -drive if=pflash,format=raw,file=$(BUILD)/OVMF_VARS.fd \
 	  -drive file=$<,format=raw -serial stdio
 
-host-test: $(BUILD)/tools/ffstool
+gcc-image:
+	$(MAKE) CC=gcc BUILD=build-gcc image
+
+host-test: $(BUILD)/tools/ffstool $(BUILD)/INITRD
 	$(MAKE) -C tests/host BUILD=$(abspath $(BUILD))/host
 
-test: image test-image host-test
-	$(PYTHON) tests/e2e/run_all.py --build $(BUILD)
+analyze:
+	tests/analyze.sh
+
+# full gate: host unit tests, static analysis, end-to-end tests in QEMU
+SOAK ?= 600
+test: image test-image gcc-image host-test analyze
+	$(PYTHON) tests/e2e/run_all.py --build $(BUILD) --soak $(SOAK)
 
 clean:
-	rm -rf $(BUILD)
+	rm -rf $(BUILD) build-gcc

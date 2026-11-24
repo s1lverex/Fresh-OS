@@ -157,17 +157,26 @@ int ktest_run(void)
 {
     failures = checks = 0;
     kprintf("ktest: starting kernel self tests\n");
-    uint64_t pages0 = pmm_free_pages();
     test_string();
     test_pmm();
     test_heap();
     test_paths();
     test_pipe();
-    test_vfs_on("", "ramfs");
-    if (data_fs_mounted())
-        test_vfs_on("/data", "freshfs");
-    /* the heap may keep pages cached in its size classes; allow that */
-    CHECK(pmm_free_pages() + 64 >= pages0, "no page leak across self tests");
+    /* run the file system tests twice: the first round may grow caches (block
+     * cache, heap size classes), the second must leave memory unchanged */
+    uint64_t pages1 = 0, heap1 = 0;
+    for (int round = 0; round < 2; round++) {
+        test_vfs_on("", "ramfs");
+        if (data_fs_mounted())
+            test_vfs_on("/data", "freshfs");
+        test_pipe();
+        if (round == 0) {
+            pages1 = pmm_free_pages();
+            heap1 = heap_used_bytes();
+        }
+    }
+    CHECK(pmm_free_pages() == pages1, "no page leak in steady state");
+    CHECK(heap_used_bytes() == heap1, "no heap leak in steady state");
     kprintf("ktest: %d checks, %d failures\n", checks, failures);
     return failures;
 }

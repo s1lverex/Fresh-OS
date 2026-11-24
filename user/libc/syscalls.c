@@ -85,6 +85,6 @@ int ttysize(int *rows, int *cols)
 
 int isatty(int fd)
 {
-    struct fresh_stat st;
+    struct fresh_stat st = {0, 0, 0, 0, 0, 0};
     return fstat(fd, &st) == 0 && st.type == FT_DEV;
 }

@@ -82,6 +82,10 @@ static inline uint64_t rdtsc(void)
 }
 
 /* interrupt flag save/restore */
+#ifdef FRESH_HOST_TEST /* kernel code compiled into host unit tests */
+static inline uint64_t irq_save(void) { return 0; }
+static inline void irq_restore(uint64_t f) { (void)f; }
+#else
 static inline uint64_t irq_save(void)
 {
     uint64_t f;
@@ -93,6 +97,7 @@ static inline void irq_restore(uint64_t f)
     if (f & 0x200)
         __asm__ volatile("sti" ::: "memory");
 }
+#endif
 static inline void cpu_relax(void) { __asm__ volatile("pause"); }
 
 /* ---- logging / panic (kernel/lib/printk.c) */

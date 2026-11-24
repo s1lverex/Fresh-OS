@@ -66,6 +66,9 @@ void console_init(void)
             rows = MIN((int)(fb_height / 16), MAX_ROWS);
             for (int i = 0; i < 16; i++)
                 pal_px[i] = make_px(palette[i]);
+            for (uint32_t y = 0; y < fb_height; y++)
+                for (uint32_t x = 0; x < fb_width; x++)
+                    fb[y * fb_pitch_px + x] = pal_px[0];
         }
     } else if (g_boot.boot_type == BOOT_TYPE_BIOS) {
         mode = MODE_VGA;
@@ -77,11 +80,6 @@ void console_init(void)
         return;
     for (int i = 0; i < cols * rows; i++)
         cells[i] = (uint16_t)(DEFAULT_ATTR << 8 | ' ');
-    if (mode == MODE_FB) {
-        for (uint32_t y = 0; y < fb_height; y++)
-            for (uint32_t x = 0; x < fb_width; x++)
-                fb[y * fb_pitch_px + x] = pal_px[0];
-    }
     memset(dirty, 1, sizeof(dirty));
     cx = cy = 0;
 }

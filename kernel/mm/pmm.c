@@ -135,6 +135,11 @@ uint64_t pmm_alloc_contig(uint64_t pages, uint64_t max_phys)
     uint64_t limit = max_phys ? MIN(npages, max_phys / PAGE_SIZE) : npages;
     uint64_t run = 0;
     for (uint64_t i = 0x100000 / PAGE_SIZE; i < limit; i++) {
+        if ((i & 7) == 0 && bitmap[i >> 3] == 0xFF) {
+            run = 0;
+            i += 7;
+            continue;
+        }
         if (test_bit(i)) {
             run = 0;
             continue;

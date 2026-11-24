@@ -40,13 +40,14 @@ int main(int argc, char **argv)
         long a = rarg(), b = rarg(), c = rarg();
         switch (n) {
         case SYS_EXIT: case SYS_SPAWN: case SYS_KILL: case SYS_REBOOT: case SYS_POWEROFF:
-        case SYS_TEST: case SYS_PIPE: case SYS_TTYMODE: case SYS_TTYFG: case SYS_CHDIR:
+        case SYS_TEST: case SYS_PIPE: case SYS_TTYMODE: case SYS_TTYFG: case SYS_CHDIR: case SYS_DUP:
             continue;
         case SYS_SLEEP:
             a = (long)(rnd() % 3);
             break;
         case SYS_READ:
         case SYS_WRITE:
+        case SYS_CLOSE:
             if (a >= 0 && a <= 2)
                 continue;
             break;

@@ -28,8 +28,26 @@ static ffs_fs g_fs;
 static bool g_mounted;
 static struct cache_ent cache[CACHE_N];
 
-void *ffs_malloc(size_t n) { return kmalloc(n); }
-void ffs_free(void *p) { kfree(p); }
+/* 4 KiB block buffers are whole pages (page aligned); kmalloc never returns
+ * page-aligned pointers, so ffs_free can tell the two apart */
+void *ffs_malloc(size_t n)
+{
+    if (n == FFS_BLOCK) {
+        uint64_t p = pmm_alloc();
+        return p ? phys_to_virt(p) : NULL;
+    }
+    return kmalloc(n);
+}
+
+void ffs_free(void *p)
+{
+    if (!p)
+        return;
+    if (((uint64_t)p & (PAGE_SIZE - 1)) == 0)
+        pmm_free(virt_to_phys(p));
+    else
+        kfree(p);
+}
 
 static int part_read(void *ctx, uint32_t blk, void *buf)
 {
@@ -43,7 +61,7 @@ static int part_read(void *ctx, uint32_t blk, void *buf)
     if (rc)
         return rc;
     if (!c->data)
-        c->data = kmalloc(FFS_BLOCK);
+        c->data = ffs_malloc(FFS_BLOCK);
     if (c->data) {
         memcpy(c->data, buf, FFS_BLOCK);
         c->blk = blk;
@@ -63,7 +81,7 @@ static int part_write(void *ctx, uint32_t blk, const void *buf)
         return rc;
     }
     if (!c->data)
-        c->data = kmalloc(FFS_BLOCK);
+        c->data = ffs_malloc(FFS_BLOCK);
     if (c->data) {
         memcpy(c->data, buf, FFS_BLOCK);
         c->blk = blk;
@@ -199,6 +217,12 @@ int data_fs_mount(void)
             continue;
         g_part.dev = d;
         g_part.start = start;
+        /* allocate the whole block cache now: fixed, predictable memory use */
+        for (int k = 0; k < CACHE_N; k++) {
+            cache[k].valid = false;
+            if (!cache[k].data && !(cache[k].data = ffs_malloc(FFS_BLOCK)))
+                return -ENOMEM;
+        }
         ffs_dev dev = {&g_part, part_read, part_write, (uint32_t)MIN(count / 8, 0xFFFFFFFFULL)};
 
         uint8_t *b = kmalloc(FFS_BLOCK);

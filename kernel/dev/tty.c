@@ -154,6 +154,10 @@ void tty_set_mode(int mode)
 {
     uint64_t f = irq_save();
     if (mode != tmode) {
+        /* keep characters typed ahead in cooked mode */
+        if (mode == TTY_MODE_RAW)
+            for (int i = 0; i < line_len; i++)
+                push(line[i]);
         tmode = mode;
         line_len = 0;
         esc_skip = 0;
