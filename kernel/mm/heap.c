@@ -22,6 +22,7 @@ struct free_block {
 
 static struct free_block *free_lists[NCLASSES];
 static uint64_t used_bytes;
+static uint64_t cache_pages; /* pages carved into small-block size classes */
 
 static int class_of(size_t total)
 {
@@ -43,6 +44,7 @@ static bool refill(int c)
     uint64_t p = pmm_alloc();
     if (!p)
         return false;
+    cache_pages++;
     size_t sz = (size_t)32 << c;
     uint8_t *base = phys_to_virt(p);
     for (size_t off = 0; off + sz <= PAGE_SIZE; off += sz) {
@@ -165,3 +167,4 @@ char *kstrdup(const char *s)
 }
 
 uint64_t heap_used_bytes(void) { return used_bytes; }
+uint64_t heap_cache_pages(void) { return cache_pages; }

@@ -157,12 +157,38 @@ uint64_t vmm_map_user_page(uint64_t *pml4, uint64_t va, uint64_t flags)
     return p;
 }
 
+int vmm_map_user_device(uint64_t *pml4, uint64_t va, uint64_t phys, uint64_t flags)
+{
+    if (va >= USER_TOP || (va & (PAGE_SIZE - 1)) || (phys & (PAGE_SIZE - 1)))
+        return -EINVAL;
+    uint64_t *pte = walk(pml4, va, true);
+    if (!pte)
+        return -ENOMEM;
+    if (*pte & PTE_P)
+        return -EEXIST;
+    if (!cpu_has_nx)
+        flags &= ~PTE_NX;
+    *pte = phys | PTE_P | PTE_U | PTE_DEVICE | (flags & (PTE_W | PTE_NX | PTE_PWT | PTE_PCD));
+    return 0;
+}
+
+void vmm_unmap_user_device(uint64_t *pml4, uint64_t va)
+{
+    uint64_t *pte = walk(pml4, va, false);
+    if (!pte || !(*pte & PTE_P) || !(*pte & PTE_DEVICE))
+        return;
+    *pte = 0;
+    if ((read_cr3() & PTE_ADDR) == virt_to_phys(pml4))
+        invlpg(va);
+}
+
 int vmm_unmap_user_page(uint64_t *pml4, uint64_t va)
 {
     uint64_t *pte = walk(pml4, va, false);
     if (!pte || !(*pte & PTE_P))
         return -1;
-    pmm_free(*pte & PTE_ADDR);
+    if (!(*pte & PTE_DEVICE))
+        pmm_free(*pte & PTE_ADDR);
     *pte = 0;
     if ((read_cr3() & PTE_ADDR) == virt_to_phys(pml4))
         invlpg(va);
@@ -194,7 +220,7 @@ void vmm_free_space(uint64_t *pml4)
                     continue;
                 uint64_t *pt = phys_to_virt(pd[i2] & PTE_ADDR);
                 for (int i1 = 0; i1 < 512; i1++)
-                    if (pt[i1] & PTE_P)
+                    if ((pt[i1] & PTE_P) && !(pt[i1] & PTE_DEVICE))
                         pmm_free(pt[i1] & PTE_ADDR);
                 pmm_free(pd[i2] & PTE_ADDR);
             }
@@ -221,7 +247,7 @@ uint64_t vmm_count_user_pages(uint64_t *pml4)
                     continue;
                 uint64_t *pt = phys_to_virt(pd[i2] & PTE_ADDR);
                 for (int i1 = 0; i1 < 512; i1++)
-                    if (pt[i1] & PTE_P)
+                    if ((pt[i1] & PTE_P) && !(pt[i1] & PTE_DEVICE))
                         n++;
             }
         }

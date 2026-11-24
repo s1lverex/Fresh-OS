@@ -9,7 +9,7 @@
 | `include/fresh/` | headers shared by loaders, kernel and user space (`bootinfo.h`, `abi.h`, `str.h`) |
 | `kernel/arch/` | entry, GDT/TSS, IDT and exceptions, 8259 PIC, PIT timer, CPU setup, assembly stubs |
 | `kernel/mm/` | physical page allocator, page tables, kernel heap |
-| `kernel/dev/` | console, font, serial, keyboard, TTY, PCI, AHCI, IDE, GPT, ACPI, RTC |
+| `kernel/dev/` | console, font, serial, keyboard, mouse, input events, framebuffer hand-over, terminals and pseudo-terminals, PCI, AHCI, IDE, GPT, ACPI, RTC |
 | `kernel/fs/` | VFS, ramfs, initrd unpacker, pipes, FreshFS glue |
 | `kernel/proc/` | processes, scheduler, ELF loader, system calls |
 | `kernel/test/` | in-kernel self tests |
@@ -17,6 +17,7 @@
 | `lib/freshfs/` | the portable FreshFS implementation and checker, used by kernel and host tools |
 | `user/libc/` | C library: syscall wrappers, malloc, stdio, strings |
 | `user/bin/` | the programs in `/bin` |
+| `user/desktop/` | the graphical desktop `/bin/desktop` |
 | `user/test/` | test programs in `/test` |
 | `tools/` | image builders (`mkimage.py`, `mkkernel.py`, `mkinitrd.py`), font generator, `ffstool` |
 | `tests/` | host unit tests, end-to-end QEMU tests, static analysis script |
@@ -90,6 +91,29 @@ FreshFS block I/O goes through a 256-block write-through cache.
 **Power.** `shutdown` and `reboot` first unmount FreshFS cleanly (marking it
 clean), then use ACPI S5 (the `\_S5` package is read from the DSDT) or the ACPI
 reset register, with keyboard-controller and triple-fault fallbacks.
+
+## Graphical desktop
+
+`/bin/desktop` (sources in `user/desktop/`) is an ordinary user program:
+
+- `SYS_FB_ACQUIRE` maps the framebuffer into its address space (write-combining,
+  marked as device memory so it is never freed) and makes the kernel deliver
+  keyboard and mouse input to it as events (`SYS_INPUT_READ`). The text console
+  keeps running off-screen and on the serial port, and is redrawn when the
+  desktop releases the screen or exits (even if it crashes).
+- It draws into a back buffer and copies frames to the screen; the mouse
+  pointer is drawn directly on the screen so moving it is cheap.
+- Each Terminal window owns a **pseudo-terminal** (`SYS_PTY_OPEN`): the shell
+  runs on the slave side with the full line discipline (line editing, Ctrl+C
+  for its own foreground job, raw mode for `edit`, its own window size), and
+  the desktop reads the master side and renders it with a small terminal
+  emulator (`term.c`, the same escape sequences as the console).
+- Closing a terminal window hangs up its pseudo-terminal: the shell reads end
+  of file and exits.
+
+init starts the desktop after `/etc/rc` when the machine has a linear
+framebuffer and `/etc/nogui` does not exist. Desktop actions are logged to
+`/tmp/desktop.log` (used by the tests).
 
 ## User space
 

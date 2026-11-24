@@ -7,6 +7,7 @@ static const char *cmds[][2] = {
     {"clear", "clear the screen"},
     {"cp SRC DST", "copy files"},
     {"date", "show date and time"},
+    {"desktop", "start the graphical desktop"},
     {"df", "show disk space"},
     {"echo TEXT", "print text"},
     {"edit FILE", "full-screen text editor (Ctrl+S save, Ctrl+Q quit)"},

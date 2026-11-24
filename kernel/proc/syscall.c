@@ -387,6 +387,75 @@ static long sys_procinfo(int index, uint64_t uinfo)
     return 0;
 }
 
+/* the terminal a process talks to: its standard input if that is one */
+static struct tty *proc_tty(void)
+{
+    struct file *f = current->fds[0];
+    if (f && f->type == FILE_TTY && f->tty)
+        return f->tty;
+    return tty_console();
+}
+
+static long sys_pty_open(uint64_t ufds)
+{
+    if (!user_range_ok(ufds, 8))
+        return -EFAULT;
+    struct tty *t = pty_create();
+    if (!t)
+        return -ENOMEM;
+    struct file *m = file_new(FILE_PTY_MASTER), *s = file_new(FILE_TTY);
+    if (!m || !s) {
+        kfree(m);
+        kfree(s);
+        pty_master_closed(t);
+        pty_slave_closed(t);
+        return -ENOMEM;
+    }
+    m->tty = s->tty = t;
+    m->flags = s->flags = O_RDWR;
+    int a = alloc_fd(m);
+    int b = a >= 0 ? alloc_fd(s) : -EMFILE;
+    int32_t fds[2] = {a, b};
+    if (a < 0 || b < 0 || copy_to_user((void *)ufds, fds, sizeof(fds))) {
+        if (a >= 0)
+            current->fds[a] = NULL;
+        if (b >= 0)
+            current->fds[b] = NULL;
+        file_close(m);
+        file_close(s);
+        return (a < 0 || b < 0) ? -EMFILE : -EFAULT;
+    }
+    return 0;
+}
+
+static long sys_pty_resize(int fd, int rows, int cols)
+{
+    struct file *f = get_fd(fd);
+    if (!f)
+        return -EBADF;
+    if (f->type != FILE_PTY_MASTER)
+        return -ENOTTY;
+    if (rows < 1 || cols < 1 || rows > 500 || cols > 500)
+        return -EINVAL;
+    pty_resize(f->tty, rows, cols);
+    return 0;
+}
+
+static long sys_input_read(uint64_t uev, uint64_t max, uint64_t timeout_ms)
+{
+    struct fresh_input_event ev[64];
+    if (max > 64)
+        max = 64;
+    if (!user_range_ok(uev, max * sizeof(ev[0])))
+        return -EFAULT;
+    if (timeout_ms > 60000)
+        timeout_ms = 60000;
+    long n = input_read(ev, max, timeout_ms);
+    if (n > 0 && copy_to_user((void *)uev, ev, (size_t)n * sizeof(ev[0])))
+        return -EFAULT;
+    return n;
+}
+
 static void shutdown_prepare(void)
 {
     kprintf("\nSyncing file systems...\n");
@@ -462,7 +531,9 @@ static long sys_test(int op, uint64_t arg)
     UNUSED(arg);
     switch (op) {
     case TEST_FREE_PAGES:
-        return (long)pmm_free_pages();
+        /* pages the heap keeps cached for small blocks are not lost: count
+         * them as free so concurrent activity cannot look like a leak */
+        return (long)(pmm_free_pages() + heap_cache_pages());
     case TEST_HEAP_USED:
         return (long)heap_used_bytes();
     case TEST_SELFTEST:
@@ -577,18 +648,37 @@ void syscall_dispatch(struct trapframe *tf)
         r = (long)rtc_unix_time();
         break;
     case SYS_TTYMODE: {
-        int old = tty_get_mode();
+        struct tty *t = proc_tty();
+        int old = tty_get_mode_on(t);
         if ((int64_t)a0 >= 0)
-            tty_set_mode(a0 ? TTY_MODE_RAW : TTY_MODE_COOKED);
+            tty_set_mode_on(t, a0 ? TTY_MODE_RAW : TTY_MODE_COOKED);
         r = old;
         break;
     }
     case SYS_TTYFG:
-        tty_set_fg((int)a0);
+        tty_set_fg_on(proc_tty(), (int)a0);
         r = 0;
         break;
-    case SYS_TTYSIZE:
-        r = ((long)console_rows() << 16) | console_cols();
+    case SYS_TTYSIZE: {
+        int rows, cols;
+        tty_size_on(proc_tty(), &rows, &cols);
+        r = ((long)rows << 16) | cols;
+        break;
+    }
+    case SYS_FB_ACQUIRE:
+        r = fb_acquire(a0);
+        break;
+    case SYS_FB_RELEASE:
+        r = fb_release();
+        break;
+    case SYS_INPUT_READ:
+        r = sys_input_read(a0, a1, a2);
+        break;
+    case SYS_PTY_OPEN:
+        r = sys_pty_open(a0);
+        break;
+    case SYS_PTY_RESIZE:
+        r = sys_pty_resize((int)a0, (int)a1, (int)a2);
         break;
     case SYS_SYNC:
         vfs_sync_all();

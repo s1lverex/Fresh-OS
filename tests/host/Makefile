@@ -37,8 +37,13 @@ $(BUILD)/test_kernel_units: test_kernel_units.c $(ROOT)/kernel/mm/heap.c $(ROOT)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -DFRESH_HOST_TEST -I$(ROOT)/kernel -o $@ $^
 
-run: $(BUILD)/test_freshfs $(BUILD)/test_fsck_fuzz $(BUILD)/test_fmt $(BUILD)/test_kernel_units
+$(BUILD)/test_term: test_term.c $(ROOT)/user/desktop/term.c $(ROOT)/user/desktop/term.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(ROOT)/user/desktop -o $@ test_term.c $(ROOT)/user/desktop/term.c
+
+run: $(BUILD)/test_term $(BUILD)/test_freshfs $(BUILD)/test_fsck_fuzz $(BUILD)/test_fmt $(BUILD)/test_kernel_units
 	$(BUILD)/test_fmt
+	$(BUILD)/test_term
 	$(BUILD)/test_kernel_units $(ROOT)/build/rootfs/bin/echo
 	$(BUILD)/test_freshfs
 	$(BUILD)/test_fsck_fuzz 3000

@@ -4,6 +4,7 @@
 #include "proc.h"
 #include "../mm/mm.h"
 #include "../fs/vfs.h"
+#include "../dev/dev.h"
 
 struct proc g_procs[MAX_PROCS] __attribute__((aligned(16)));
 struct proc *current;
@@ -280,6 +281,7 @@ void proc_exit(int status)
         }
     }
     uint64_t f = irq_save();
+    fb_process_exit(p);
     write_cr3(vmm_kernel_cr3());
     p->cr3 = vmm_kernel_cr3();
     vmm_free_space(p->pml4);

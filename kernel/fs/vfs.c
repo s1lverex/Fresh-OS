@@ -2,6 +2,7 @@
 #include "vfs.h"
 #include "../mm/mm.h"
 #include "../proc/proc.h"
+#include "../dev/dev.h"
 
 static struct mount mounts[MAX_MOUNTS];
 
@@ -366,6 +367,10 @@ void file_close(struct file *f)
         return;
     if (f->type == FILE_PIPE_R || f->type == FILE_PIPE_W)
         pipe_close(f->pipe, f->type == FILE_PIPE_W);
+    else if (f->type == FILE_TTY && f->tty && tty_is_pty(f->tty))
+        pty_slave_closed(f->tty);
+    else if (f->type == FILE_PTY_MASTER)
+        pty_master_closed(f->tty);
     kfree(f);
 }
 
@@ -384,10 +389,10 @@ long file_read(struct file *f, void *kbuf, size_t n)
     }
     case FILE_PIPE_R:
         return pipe_read(f->pipe, kbuf, n);
-    case FILE_TTY: {
-        extern long tty_read(char *buf, size_t n);
-        return tty_read(kbuf, n);
-    }
+    case FILE_TTY:
+        return tty_read_on(f->tty, kbuf, n);
+    case FILE_PTY_MASTER:
+        return pty_master_read(f->tty, kbuf, n);
     default:
         return -EBADF;
     }
@@ -415,10 +420,10 @@ long file_write(struct file *f, const void *kbuf, size_t n)
     }
     case FILE_PIPE_W:
         return pipe_write(f->pipe, kbuf, n);
-    case FILE_TTY: {
-        extern long tty_write(const char *buf, size_t n);
-        return tty_write(kbuf, n);
-    }
+    case FILE_TTY:
+        return tty_write_on(f->tty, kbuf, n);
+    case FILE_PTY_MASTER:
+        return pty_master_write(f->tty, kbuf, n);
     default:
         return -EBADF;
     }

@@ -114,9 +114,20 @@ $(BUILD)/rootfs/test/%: $(BUILD)/u/user/test/%.o $(BUILD)/libc.a user/user.ld
 	@mkdir -p $(dir $@)
 	$(LD) $(LDFLAGS) -s -T user/user.ld -o $@ $(BUILD)/u/user/libc/crt0.o $< $(BUILD)/libc.a
 
+# the desktop is built from several files plus the console font
+DESKTOP_OBJ := $(patsubst %.c,$(BUILD)/u/%.o,$(wildcard user/desktop/*.c)) $(BUILD)/u/gen/font_data.o
+
+$(BUILD)/u/gen/font_data.o: $(BUILD)/gen/font_data.c
+	@mkdir -p $(dir $@)
+	$(CC) $(UCFLAGS) -c $< -o $@
+
+$(BUILD)/rootfs/bin/desktop: $(DESKTOP_OBJ) $(BUILD)/libc.a user/user.ld
+	@mkdir -p $(dir $@)
+	$(LD) $(LDFLAGS) -s -T user/user.ld -o $@ $(BUILD)/u/user/libc/crt0.o $(DESKTOP_OBJ) $(BUILD)/libc.a
+
 ROOTFS_FILES := $(shell find rootfs -type f 2>/dev/null)
 
-$(BUILD)/INITRD: $(PROG_BIN) $(TEST_BIN) $(ROOTFS_FILES) tools/mkinitrd.py
+$(BUILD)/INITRD: $(PROG_BIN) $(TEST_BIN) $(BUILD)/rootfs/bin/desktop $(ROOTFS_FILES) tools/mkinitrd.py
 	$(PYTHON) tools/mkinitrd.py $@ rootfs $(BUILD)/rootfs
 
 # ---------------------------------------------------------------- host tools

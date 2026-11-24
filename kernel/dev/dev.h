@@ -20,15 +20,44 @@ bool console_has_display(void);
 /* keyboard.c - PS/2 */
 void keyboard_init(void);
 
-/* tty.c - line discipline over console + serial */
+/* tty.c - terminals: the console (screen + serial) and pseudo-terminals */
+struct tty;
 void tty_init(void);
-void tty_input(char c);          /* from IRQ handlers */
+struct tty *tty_console(void);
+void tty_input(char c);          /* console input, also from IRQ handlers */
 void tty_input_str(const char *s);
-long tty_read(char *buf, size_t n);
-long tty_write(const char *buf, size_t n);
-void tty_set_mode(int mode);
-int tty_get_mode(void);
-void tty_set_fg(int pid);
+void tty_input_on(struct tty *t, char c);
+long tty_read_on(struct tty *t, char *buf, size_t n);
+long tty_write_on(struct tty *t, const char *buf, size_t n);
+void tty_set_mode_on(struct tty *t, int mode);
+int tty_get_mode_on(struct tty *t);
+void tty_set_fg_on(struct tty *t, int pgid);
+void tty_size_on(struct tty *t, int *rows, int *cols);
+bool tty_is_pty(struct tty *t);
+struct tty *pty_create(void);
+void pty_slave_closed(struct tty *t);
+void pty_master_closed(struct tty *t);
+long pty_master_read(struct tty *t, char *buf, size_t n);
+long pty_master_write(struct tty *t, const char *buf, size_t n);
+void pty_resize(struct tty *t, int rows, int cols);
+
+/* input.c - keyboard/mouse events for the program that owns the screen */
+bool input_grabbed(void);
+void input_key(uint32_t key, uint32_t ch, uint32_t mods);
+void input_mouse(int dx, int dy, uint32_t buttons);
+void input_grab(int pid);
+void input_release(int pid);
+long input_read(void *events, size_t max, uint64_t timeout_ms);
+
+/* mouse.c - PS/2 mouse */
+void mouse_init(void);
+
+/* fb.c - handing the framebuffer to a user program */
+struct proc;
+long fb_acquire(uint64_t uinfo);
+long fb_release(void);
+void fb_process_exit(struct proc *p);
+void console_suspend(bool on);
 
 /* pci.c */
 struct pci_dev {

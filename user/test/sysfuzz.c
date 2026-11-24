@@ -41,6 +41,7 @@ int main(int argc, char **argv)
         switch (n) {
         case SYS_EXIT: case SYS_SPAWN: case SYS_KILL: case SYS_REBOOT: case SYS_POWEROFF:
         case SYS_TEST: case SYS_PIPE: case SYS_TTYMODE: case SYS_TTYFG: case SYS_CHDIR: case SYS_DUP:
+        case SYS_FB_ACQUIRE: case SYS_FB_RELEASE: case SYS_INPUT_READ: case SYS_PTY_OPEN:
             continue;
         case SYS_SLEEP:
             a = (long)(rnd() % 3);

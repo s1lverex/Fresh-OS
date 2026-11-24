@@ -4,6 +4,7 @@
 #include "../mm/mm.h"
 #include "../fs/vfs.h"
 #include "../proc/proc.h"
+#include "../dev/dev.h"
 
 static int failures, checks;
 
@@ -145,6 +146,41 @@ static void test_pipe(void)
     file_close(r);
 }
 
+static void test_pty(void)
+{
+    struct tty *t = pty_create();
+    CHECK(t != NULL, "pty create");
+    if (!t)
+        return;
+    char buf[64];
+    CHECK(pty_master_read(t, buf, sizeof(buf)) == -EAGAIN, "pty master read is non-blocking");
+    pty_master_write(t, "hi\r", 3);
+    long n = pty_master_read(t, buf, sizeof(buf));
+    CHECK(n == 3 && !memcmp(buf, "hi\n", 3), "pty echoes typed line");
+    n = tty_read_on(t, buf, sizeof(buf));
+    CHECK(n == 3 && !memcmp(buf, "hi\n", 3), "pty slave reads the cooked line");
+    pty_master_write(t, "ab\x7f" "c\r", 5);
+    n = tty_read_on(t, buf, sizeof(buf));
+    CHECK(n == 3 && !memcmp(buf, "ac\n", 3), "pty line editing (backspace)");
+    while (pty_master_read(t, buf, sizeof(buf)) > 0)
+        ;
+    tty_set_mode_on(t, TTY_MODE_RAW);
+    pty_master_write(t, "\x1b[A", 3);
+    n = tty_read_on(t, buf, sizeof(buf));
+    CHECK(n == 3 && !memcmp(buf, "\x1b[A", 3) && pty_master_read(t, buf, sizeof(buf)) == -EAGAIN,
+          "pty raw mode passes bytes without echo");
+    CHECK(tty_write_on(t, "out", 3) == 3 && pty_master_read(t, buf, sizeof(buf)) == 3 && !memcmp(buf, "out", 3),
+          "pty slave output reaches the master");
+    pty_resize(t, 30, 100);
+    int r, c;
+    tty_size_on(t, &r, &c);
+    CHECK(r == 30 && c == 100, "pty window size");
+    pty_master_closed(t);
+    CHECK(tty_read_on(t, buf, sizeof(buf)) == 0, "pty hang-up gives end of file");
+    CHECK(tty_write_on(t, "x", 1) == -EIO, "pty write after hang-up fails");
+    pty_slave_closed(t);
+}
+
 static void test_paths(void)
 {
     char out[PATH_MAX];
@@ -162,6 +198,7 @@ int ktest_run(void)
     test_heap();
     test_paths();
     test_pipe();
+    test_pty();
     /* run the file system tests twice: the first round may grow caches (block
      * cache, heap size classes), the second must leave memory unchanged */
     uint64_t pages1 = 0, heap1 = 0;
@@ -170,6 +207,7 @@ int ktest_run(void)
         if (data_fs_mounted())
             test_vfs_on("/data", "freshfs");
         test_pipe();
+        test_pty();
         if (round == 0) {
             pages1 = pmm_free_pages();
             heap1 = heap_used_bytes();

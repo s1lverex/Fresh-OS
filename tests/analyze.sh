@@ -9,7 +9,7 @@ for f in $(find kernel lib -name '*.c' | sort); do
   out=$(clang --analyze $KF $f -o /dev/null 2>&1)
   if [ -n "$out" ]; then echo "$out"; n=$((n+1)); fi
 done
-for f in user/libc/*.c user/bin/*.c user/test/*.c; do
+for f in user/libc/*.c user/bin/*.c user/test/*.c user/desktop/*.c; do
   out=$(clang --analyze $UF $f -o /dev/null 2>&1)
   if [ -n "$out" ]; then echo "$out"; n=$((n+1)); fi
 done

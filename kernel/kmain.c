@@ -57,6 +57,7 @@ static void start_init(void)
     if (!tty)
         panic("cannot allocate console file");
     tty->flags = O_RDWR;
+    tty->tty = tty_console();
     struct file *fds[3] = {tty, tty, tty};
     char *argv[] = {"/bin/init", NULL};
     int pid = proc_spawn("/bin/init", argv, 1, fds, "/", 0);
@@ -94,6 +95,7 @@ void kmain(struct boot_info *bi)
     rtc_init();
     tty_init();
     keyboard_init();
+    mouse_init();
     serial_enable_irq();
     __asm__ volatile("sti");
     acpi_init();

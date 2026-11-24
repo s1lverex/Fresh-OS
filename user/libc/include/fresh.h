@@ -47,6 +47,11 @@ int dup(int fd);
 int truncate(const char *path, uint64_t size);
 int yield(void);
 long fresh_test(int op, long arg);
+int fb_acquire(struct fresh_fbinfo *info); /* take over the screen + input */
+int fb_release(void);
+int input_read(struct fresh_input_event *ev, int max, int timeout_ms);
+int pty_open(int fds[2]); /* fds[0] master (non-blocking reads), fds[1] slave */
+int pty_resize(int master, int rows, int cols);
 
 /* helpers */
 const char *strerror(int err); /* accepts positive or negative codes */

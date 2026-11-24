@@ -49,7 +49,9 @@ void vfs_unmount_all(void);
 bool vfs_is_mountpoint(const char *abspath);
 
 /* open files */
-enum file_type { FILE_NONE = 0, FILE_VNODE, FILE_PIPE_R, FILE_PIPE_W, FILE_TTY };
+enum file_type { FILE_NONE = 0, FILE_VNODE, FILE_PIPE_R, FILE_PIPE_W, FILE_TTY, FILE_PTY_MASTER };
+
+struct tty;
 
 struct pipe;
 
@@ -62,6 +64,7 @@ struct file {
     uint64_t off;
     uint32_t ftype; /* FT_FILE / FT_DIR for vnodes */
     struct pipe *pipe;
+    struct tty *tty; /* FILE_TTY (terminal or pty slave), FILE_PTY_MASTER */
 };
 
 struct file *file_new(enum file_type t);

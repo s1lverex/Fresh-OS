@@ -27,6 +27,7 @@ static int drawn_cx = -1, drawn_cy = -1;
 static uint8_t attr = DEFAULT_ATTR;
 static bool bold, reverse;
 static bool cursor_on = true;
+static bool suspended; /* a GUI owns the framebuffer */
 static uint32_t pal_px[16];
 
 /* Fresh palette (RGB) */
@@ -126,7 +127,7 @@ static void vga_cursor(void)
 
 static void flush(void)
 {
-    if (mode == MODE_NONE)
+    if (mode == MODE_NONE || suspended)
         return;
     if (drawn_cy >= 0 && drawn_cy < rows && !dirty[drawn_cy] && drawn_cx < cols) {
         int sx = cx, sy = cy;
@@ -380,6 +381,23 @@ static void put_char(char ch)
     cells[cy * cols + cx] = (uint16_t)(attr << 8 | c);
     dirty[cy] = 1;
     cx++;
+}
+
+void console_suspend(bool on)
+{
+    uint64_t f = irq_save();
+    suspended = on;
+    if (!on && mode == MODE_FB) {
+        for (uint32_t y = 0; y < fb_height; y++) /* wipe what the GUI left */
+            for (uint32_t x = 0; x < fb_width; x++)
+                fb[y * fb_pitch_px + x] = pal_px[0];
+    }
+    if (!on && mode != MODE_NONE) {
+        memset(dirty, 1, sizeof(dirty));
+        drawn_cy = -1;
+        flush();
+    }
+    irq_restore(f);
 }
 
 void console_write(const char *s, size_t n)

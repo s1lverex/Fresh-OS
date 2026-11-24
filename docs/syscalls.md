@@ -44,6 +44,14 @@ error codes (`-ENOENT`, ...; values in `include/fresh/abi.h`). The C wrappers in
 | 34 | truncate | path, size | 0 |
 | 35 | yield | | 0 |
 | 36 | test | operation, argument | diagnostics used by the test suite |
+| 37 | fb_acquire | `struct fresh_fbinfo *` | 0; framebuffer mapped, input events go to the caller |
+| 38 | fb_release | | 0; the text console returns |
+| 39 | input_read | `struct fresh_input_event *`, max, timeout ms | number of events (0 on timeout) |
+| 40 | pty_open | int fds[2] | 0; fds[0] master (reads never block), fds[1] slave terminal |
+| 41 | pty_resize | master fd, rows, columns | 0 |
+
+`ttymode`, `ttyfg` and `ttysize` act on the terminal that is the caller's
+standard input (the console, or a pseudo-terminal).
 
 ## Exit status
 

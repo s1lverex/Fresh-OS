@@ -25,9 +25,19 @@ int main(void)
                 ;
     }
     struct fresh_sysinfo si;
-    if (sysinfo(&si) == 0 && si.data_mounted)
+    int have_si = sysinfo(&si) == 0;
+    if (have_si && si.data_mounted)
         chdir("/data");
     int shell = start_shell();
+    /* graphical desktop on the screen; the text console keeps running on the
+     * serial port and comes back when the desktop exits */
+    struct fresh_stat st2;
+    if (have_si && si.fb_width && stat("/etc/nogui", &st2) != 0) {
+        char *dargv[] = {"desktop", NULL};
+        int d = spawn("/bin/desktop", dargv, NULL, 0);
+        if (d < 0)
+            printf("init: cannot start the desktop: %s\n", strerror(d));
+    }
     for (;;) {
         int status;
         int pid = wait_pid(-1, &status);

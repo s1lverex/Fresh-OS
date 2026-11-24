@@ -16,7 +16,7 @@ import time
 import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from qemu import VM, TestFailure  # noqa: E402
+from qemu import VM, TestFailure, type_text, mouse_to, click, drag, screenshot, pixel, near, wait_log, desktop_pid  # noqa: E402,F401
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ARGS = None
@@ -497,18 +497,183 @@ def editor():
 
 
 # ======================================================================= devices
+# screen geometry used by the GUI tests (1024x768, see user/desktop/desktop.c)
+SCR_W, SCR_H = 1024, 768
+START_BTN = (40, SCR_H - 17)
+MENU_TOP = SCR_H - 34 - 4 - (8 * 28 + 10 + 12)
+
+
+def menu_item(i):
+    return (60, MENU_TOP + 6 + i * 28 + (10 if i >= 5 else 0) + 14)
+
+
+M_TERM, M_FILES, M_MONITOR, M_EDITOR, M_ABOUT, M_EXIT, M_RESTART, M_SHUTDOWN = range(8)
+
+
+def gui_ready(vm):
+    wait_log(vm, "opened Terminal", 30)
+    time.sleep(0.5)
+
+
+def exit_desktop(vm):
+    pid = desktop_pid(vm)
+    if pid:
+        vm.out("kill %d" % pid)
+        for _ in range(20):
+            if not desktop_pid(vm):
+                break
+            time.sleep(0.25)
+    check(desktop_pid(vm) is None, "desktop did not exit")
+    time.sleep(0.5)
+
+
 @test
-def ps2_keyboard():
+def gui_desktop_appears():
+    for fw in ["bios", "uefi"]:
+        with Booted(firmware=fw) as vm:
+            log = wait_log(vm, "opened Terminal", 30)
+            time.sleep(1.0)  # let the first frame reach the screen
+            check("started 1024x768" in log, "desktop resolution: " + log)
+            check("screen handed to desktop" in vm.text, "kernel did not hand the screen to the desktop")
+            shot = screenshot(vm)
+            eq(shot[:2], (SCR_W, SCR_H), "%s screen size" % fw)
+            check(near(pixel(shot, 600, SCR_H - 10), 0x111820), "%s: taskbar missing" % fw)
+            check(near(pixel(shot, START_BTN[0], SCR_H - 8), 0x1F7A5C), "%s: start button missing" % fw)
+            check(near(pixel(shot, 300, 50), 0x1F7A5C), "%s: focused terminal title bar missing" % fw)
+            wall = pixel(shot, 900, 60)
+            check(wall[2] > wall[0] and wall[2] < 0x40, "%s: wallpaper colour wrong: %r" % (fw, wall))
+            check(near(pixel(shot, 200, 200), 0x0E1116), "%s: terminal window body missing" % fw)
+            vm.shutdown()
+
+
+@test
+def gui_keyboard_terminal():
     with Booted() as vm:
-        keys = list("echo") + ["spc"] + list("kbd") + ["shift-o", "shift-k", "ret"]
-        vm.sendkeys(keys)
-        vm.expect("kbdOK", 20)
-        vm.wait_prompt()
-        vm.sendkeys(["ctrl-c"])
-        vm.wait_prompt()
-        vm.sendkeys(list("pwd") + ["ret"])
-        vm.expect("/data", 20)
+        gui_ready(vm)
+        type_text(vm, "echo gui-ok > /data/gui.txt\n")
+        time.sleep(1.5)
+        eq(vm.out("cat /data/gui.txt").strip(), "gui-ok", "command typed into the GUI terminal")
+        # Ctrl+C stops a program in the GUI terminal (pseudo-terminal job control)
+        type_text(vm, "sleep 60\n")
+        time.sleep(1.0)
+        vm.monitor("sendkey ctrl-c")
+        time.sleep(0.8)
+        type_text(vm, "echo $? > /data/rc.txt\n")
+        time.sleep(1.5)
+        eq(vm.out("cat /data/rc.txt").strip(), "130", "status after Ctrl+C in the GUI terminal")
+        # the editor runs inside the GUI terminal (raw mode + escape sequences)
+        type_text(vm, "edit /data/g.txt\n")
+        time.sleep(1.5)
+        type_text(vm, "Typed in a window")
+        vm.monitor("sendkey ctrl-s")
+        time.sleep(0.8)
+        vm.monitor("sendkey ctrl-q")
+        time.sleep(1.0)
+        eq(vm.out("cat /data/g.txt").strip(), "Typed in a window", "editor inside the GUI terminal")
+        # a second terminal (Ctrl+Alt+T) has its own shell
+        vm.monitor("sendkey ctrl-alt-t")
+        time.sleep(1.5)
+        type_text(vm, "echo second > /data/second.txt\n")
+        time.sleep(1.5)
+        eq(vm.out("cat /data/second.txt").strip(), "second", "second terminal window")
+        check(vm.out("cat /tmp/desktop.log").count("opened Terminal") == 2, "two terminals opened")
+        out = vm.out("ps")
+        check(out.count(" sh") >= 3, "a shell per terminal window plus the console shell:\n" + out)
         vm.shutdown()
+        host_fsck_clean(vm)
+
+
+@test
+def gui_mouse_and_windows():
+    with Booted() as vm:
+        gui_ready(vm)
+        click(vm, *START_BTN)
+        wait_log(vm, "menu opened")
+        click(vm, *menu_item(M_MONITOR))
+        wait_log(vm, "opened System Monitor")
+        # second window cascades to (184, 70); drag it by its title bar
+        drag(vm, 300, 80, 500, 300)
+        log = wait_log(vm, "moved System Monitor to")
+        m = re.search(r"moved System Monitor to (-?\d+),(-?\d+)", log)
+        eq((int(m.group(1)), int(m.group(2))), (384, 290), "window position after dragging")
+        shot = screenshot(vm)
+        check(near(pixel(shot, 760, 300), 0x1F7A5C), "moved window drawn at its new place")
+        # close it with its close button
+        click(vm, 384 + 470 - 15, 290 + 13)
+        wait_log(vm, "closed System Monitor")
+        # double-click the Files desktop icon, then open README.txt in the editor
+        click(vm, 64, 20 + 92 + 40, double=True)
+        wait_log(vm, "opened Files")
+        click(vm, 300, 70 + 26 + 34 + 2 + 10, double=True)
+        wait_log(vm, "opened Edit: README.txt")
+        time.sleep(1.5)
+        vm.monitor("sendkey ctrl-q")
+        wait_log(vm, "closed Edit: README.txt")
+        # keyboard shortcut Alt+F4 closes the focused window (Files)
+        vm.monitor("sendkey alt-f4")
+        wait_log(vm, "closed Files")
+        # About from the start menu; Escape closes an open menu
+        click(vm, *START_BTN)
+        click(vm, *menu_item(M_ABOUT))
+        wait_log(vm, "opened About Fresh OS")
+        click(vm, *START_BTN)
+        vm.monitor("sendkey esc")
+        time.sleep(0.5)
+        shot = screenshot(vm)
+        check(not near(pixel(shot, 60, MENU_TOP + 20), 0x1A222C), "Escape closed the start menu")
+        log = vm.out("cat /tmp/desktop.log")
+        check("exit to console" not in log and desktop_pid(vm), "desktop still running after all that")
+        vm.out("/test/ktest", timeout=300)
+        vm.shutdown()
+
+
+@test
+def gui_exit_and_console():
+    for fw in ["bios", "uefi"]:
+        with Booted(firmware=fw) as vm:
+            gui_ready(vm)
+            click(vm, *START_BTN)
+            click(vm, *menu_item(M_EXIT))
+            wait_log(vm, "exit to console")
+            time.sleep(1.0)
+            check(desktop_pid(vm) is None, "desktop process ended")
+            out = vm.out("ps")
+            check(out.count(" sh") == 1, "terminal shells ended with the desktop:\n" + out)
+            # the text console is back on screen
+            vm.out("echo SCREENTEST")
+            shot = screenshot(vm)
+            colors = {}
+            px = shot[2]
+            for i in range(0, len(px) - 2, 3 * 7):
+                c = px[i:i + 3]
+                colors[c] = colors.get(c, 0) + 1
+            check(colors.get(bytes([0x0E, 0x11, 0x16]), 0) > len(px) // 21 // 2, "%s: console background" % fw)
+            check(colors.get(bytes([0xCD, 0xD5, 0xDF]), 0) > 200, "%s: console text" % fw)
+            check(any(abs(c[0] - 0x7E) < 3 and abs(c[1] - 0xE2) < 3 for c in colors), "%s: green prompt" % fw)
+            check(not near(pixel(shot, 600, SCR_H - 10), 0x111820), "%s: taskbar gone" % fw)
+            # the PS/2 keyboard goes to the console shell again
+            type_text(vm, "echo kbdOK\n")
+            vm.expect("kbdOK", 20)
+            vm.wait_prompt()
+            # and the desktop can be started again
+            vm.out("desktop &")
+            wait_log(vm, "opened Terminal")
+            check(near(pixel(screenshot(vm), 600, SCR_H - 10), 0x111820), "%s: desktop is back" % fw)
+            vm.shutdown()
+
+
+@test
+def gui_shutdown_from_menu():
+    with Booted() as vm:
+        gui_ready(vm)
+        type_text(vm, "echo before-shutdown > /data/s.txt\n")
+        time.sleep(1.5)
+        click(vm, *START_BTN)
+        click(vm, *menu_item(M_SHUTDOWN))
+        eq(vm.wait_exit(60), 0, "QEMU exit code after Shut down")
+        check("Powering off" in vm.text, "clean power off")
+        host_fsck_clean(vm)
+        eq(ffstool("cat", vm.image, "/s.txt").stdout.strip(), "before-shutdown", "data saved")
 
 
 def read_ppm(path):
@@ -517,28 +682,6 @@ def read_ppm(path):
     check(parts[0] == b"P6", "screendump is not a PPM")
     w, h = int(parts[1]), int(parts[2])
     return w, h, parts[4]
-
-
-@test
-def framebuffer_console():
-    for fw in ["bios", "uefi"]:
-        with Booted(firmware=fw) as vm:
-            vm.out("echo SCREENTEST")
-            shot = os.path.join(vm.workdir, "screen.ppm")
-            vm.monitor("screendump " + shot)
-            time.sleep(0.5)
-            w, h, px = read_ppm(shot)
-            eq((w, h), (1024, 768), "%s screen size" % fw)
-            colors = {}
-            for i in range(0, len(px) - 2, 3 * 7):
-                c = px[i:i + 3]
-                colors[c] = colors.get(c, 0) + 1
-            bg = bytes([0x0E, 0x11, 0x16])
-            fg = bytes([0xCD, 0xD5, 0xDF])
-            check(colors.get(bg, 0) > len(px) // 21 // 2, "%s: background colour missing" % fw)
-            check(colors.get(fg, 0) > 200, "%s: no text pixels on screen" % fw)
-            check(any(abs(c[0] - 0x7E) < 3 and abs(c[1] - 0xE2) < 3 for c in colors), "%s: green prompt missing" % fw)
-            vm.shutdown()
 
 
 @test

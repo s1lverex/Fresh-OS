@@ -202,6 +202,8 @@ class VM:
 
     # ------------------------------------------------------------ monitor
     def monitor(self, command, timeout=10):
+        if not self.alive():  # e.g. the guest just powered off
+            return ""
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         end = time.time() + timeout
         while True:
@@ -209,6 +211,8 @@ class VM:
                 s.connect(self.mon_path)
                 break
             except OSError:
+                if not self.alive():
+                    return ""
                 if time.time() > end:
                     raise TestFailure("cannot connect to the QEMU monitor")
                 time.sleep(0.1)
@@ -230,3 +234,95 @@ class VM:
         for k in keys:
             self.monitor("sendkey " + k)
             time.sleep(0.05)
+
+
+# ---------------------------------------------------------------- GUI helpers
+KEYNAMES = {" ": "spc", "\n": "ret", "\t": "tab", "-": "minus", "_": "shift-minus", "=": "equal",
+            "+": "shift-equal", ".": "dot", ",": "comma", "/": "slash", "?": "shift-slash", ";": "semicolon",
+            ":": "shift-semicolon", "'": "apostrophe", '"': "shift-apostrophe", ">": "shift-dot",
+            "<": "shift-comma", "$": "shift-4", "&": "shift-7", "*": "shift-8", "|": "shift-backslash",
+            "!": "shift-1", "@": "shift-2", "#": "shift-3", "(": "shift-9", ")": "shift-0"}
+
+
+def _keyname(c):
+    if c in KEYNAMES:
+        return KEYNAMES[c]
+    if c.isupper():
+        return "shift-" + c.lower()
+    return c
+
+
+def type_text(vm, text):
+    """Type text on the emulated PS/2 keyboard."""
+    for c in text:
+        vm.monitor("sendkey " + _keyname(c))
+        time.sleep(0.03)
+
+
+def mouse_to(vm, x, y):
+    """Move the PS/2 mouse pointer to absolute screen position x, y."""
+    for _ in range(4):
+        vm.monitor("mouse_move -500 -500")
+        time.sleep(0.05)
+    vm.monitor("mouse_move %d %d" % (x, y))
+    time.sleep(0.2)
+
+
+def click(vm, x, y, double=False):
+    mouse_to(vm, x, y)
+    for i in range(2 if double else 1):
+        vm.monitor("mouse_button 1")
+        time.sleep(0.06)
+        vm.monitor("mouse_button 0")
+        time.sleep(0.12 if double and i == 0 else 0.4)
+
+
+def drag(vm, x0, y0, x1, y1):
+    mouse_to(vm, x0, y0)
+    vm.monitor("mouse_button 1")
+    time.sleep(0.15)
+    vm.monitor("mouse_move %d %d" % ((x1 - x0) // 2, (y1 - y0) // 2))
+    time.sleep(0.15)
+    vm.monitor("mouse_move %d %d" % (x1 - x0 - (x1 - x0) // 2, y1 - y0 - (y1 - y0) // 2))
+    time.sleep(0.15)
+    vm.monitor("mouse_button 0")
+    time.sleep(0.4)
+
+
+def screenshot(vm):
+    """Return (width, height, rgb bytes) of the VM screen."""
+    path = os.path.join(vm.workdir, "shot.ppm")
+    vm.monitor("screendump " + path)
+    time.sleep(0.4)
+    data = open(path, "rb").read()
+    m = re.match(rb"P6\s+(\d+)\s+(\d+)\s+(\d+)\s", data)
+    w, h = int(m.group(1)), int(m.group(2))
+    return w, h, data[m.end():m.end() + w * h * 3]
+
+
+def pixel(shot, x, y):
+    w, h, px = shot
+    i = (y * w + x) * 3
+    return px[i], px[i + 1], px[i + 2]
+
+
+def near(rgb, want, tol=6):
+    return all(abs(a - ((want >> s) & 0xFF)) <= tol for a, s in zip(rgb, (16, 8, 0)))
+
+
+def wait_log(vm, text, timeout=20):
+    """Wait until /tmp/desktop.log (written by the desktop) contains text."""
+    end = time.time() + timeout
+    while True:
+        log = vm.run("cat /tmp/desktop.log", check=False)[1]
+        if text in log:
+            return log
+        if time.time() > end:
+            raise TestFailure("desktop log never showed %r:\n%s" % (text, log))
+        time.sleep(0.5)
+
+
+def desktop_pid(vm):
+    out = vm.out("ps")
+    m = re.search(r"^\s*(\d+)\s+\d+\s+\w+\s+\d+\s+\d+\s+desktop\s*$", out, re.M)
+    return int(m.group(1)) if m else None

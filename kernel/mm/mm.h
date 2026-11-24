@@ -38,6 +38,7 @@ void pmm_relocate(uint64_t old_offset, uint64_t new_offset);
 #define PTE_D (1ULL << 6)
 #define PTE_PS (1ULL << 7)
 #define PTE_G (1ULL << 8)
+#define PTE_DEVICE (1ULL << 9) /* software bit: device memory, never freed */
 #define PTE_NX (1ULL << 63)
 #define PTE_ADDR 0x000FFFFFFFFFF000ULL
 
@@ -52,6 +53,9 @@ void vmm_free_space(uint64_t *pml4);
 /* map one zeroed user page, returns physical or 0 */
 uint64_t vmm_map_user_page(uint64_t *pml4, uint64_t va, uint64_t flags);
 int vmm_unmap_user_page(uint64_t *pml4, uint64_t va);
+/* map device memory (e.g. the framebuffer) into user space */
+int vmm_map_user_device(uint64_t *pml4, uint64_t va, uint64_t phys, uint64_t flags);
+void vmm_unmap_user_device(uint64_t *pml4, uint64_t va);
 uint64_t vmm_user_phys(uint64_t *pml4, uint64_t va); /* 0 if unmapped */
 uint64_t vmm_count_user_pages(uint64_t *pml4);
 
@@ -63,5 +67,6 @@ void *krealloc(void *p, size_t n);
 void kfree(void *p);
 char *kstrdup(const char *s);
 uint64_t heap_used_bytes(void);
+uint64_t heap_cache_pages(void); /* pages kept by the heap's size classes */
 
 #endif

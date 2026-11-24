@@ -21,6 +21,7 @@ serial log and disk image.
 | `test_fsck_fuzz` | 3000 rounds of random corruption of a populated file system: the file system code must not crash on damaged data, `fsck -y` must always produce a clean, mountable, writable file system |
 | `test_kernel_units` | kernel heap stress and accounting; 20000 mutated ELF files fed to the program loader |
 | `test_fmt` | `printf` formatting and string routines compared with the host C library |
+| `test_term` | the desktop's terminal emulator: escape sequences, scrolling, wrapping, clamping, random input |
 
 ## In-OS tests (`user/test`, installed in `/test`)
 
@@ -41,6 +42,10 @@ Boot matrix (BIOS/UEFI x i440FX-IDE/Q35-SATA, 64 MB-8 GB, CPU models), kernel
 self tests, kernel panic reporting, process isolation, syscall fuzzing, stress,
 disk full, persistence across reboots, repeated power cuts during heavy
 writes (with host-side `fsck` afterwards), file operations, shell features,
-line editing and Tab completion, all utilities, the editor, the PS/2 keyboard
-(QEMU key injection), the framebuffer (QEMU screenshots), reboot, a GCC-built
-image and a soak test.
+line editing and Tab completion, all utilities, the editor, reboot, a GCC-built
+image, a soak test, and the desktop: it appears on BIOS and UEFI (checked in
+screenshots), typing into terminal windows with QEMU key injection (Ctrl+C,
+the editor, a second terminal), mouse clicks and drags with QEMU mouse
+injection (start menu, desktop icons, Files, moving and closing windows,
+keyboard shortcuts), exit to the text console and restart, and shutting down
+from the start menu.

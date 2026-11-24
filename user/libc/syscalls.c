@@ -72,6 +72,11 @@ int dup(int fd) { return (int)S1(SYS_DUP, fd); }
 int truncate(const char *path, uint64_t size) { return (int)S2(SYS_TRUNCATE, path, size); }
 int yield(void) { return (int)S0(SYS_YIELD); }
 long fresh_test(int op, long arg) { return S2(SYS_TEST, op, arg); }
+int fb_acquire(struct fresh_fbinfo *info) { return (int)S1(SYS_FB_ACQUIRE, info); }
+int fb_release(void) { return (int)S0(SYS_FB_RELEASE); }
+int input_read(struct fresh_input_event *ev, int max, int timeout_ms) { return (int)S3(SYS_INPUT_READ, ev, max, timeout_ms); }
+int pty_open(int fds[2]) { return (int)S1(SYS_PTY_OPEN, fds); }
+int pty_resize(int master, int rows, int cols) { return (int)S3(SYS_PTY_RESIZE, master, rows, cols); }
 
 int ttysize(int *rows, int *cols)
 {

@@ -14,6 +14,7 @@
 | Firmware | BIOS with INT 13h extensions; UEFI 2.x (x86-64) |
 | Display | linear framebuffer from VESA (BIOS) or GOP (UEFI), 32 bits per pixel; VGA text mode fallback |
 | Keyboard | PS/2 keyboard (US layout), or a USB keyboard through the firmware's PS/2 emulation |
+| Mouse | PS/2 mouse (or the firmware's PS/2 emulation of a USB mouse) |
 | Serial | 16550 UART on COM1 (115200 baud), used as a second console |
 | Storage | AHCI SATA controllers, IDE/PATA controllers (legacy or native mode) |
 | Partitions | GPT; FreshFS data partition |
@@ -30,18 +31,20 @@ PCs.** Real firmware and chipsets vary; please report problems.
 
 ## Known limitations (v0.1)
 
-- **No USB stack.** USB keyboards only work if the firmware emulates a PS/2
-  keyboard. Many PCs do this when booting in legacy (BIOS/CSM) mode; with UEFI
-  boot the emulation often stops once the operating system takes over, so a
-  PS/2 keyboard (or the serial console) may be required.
+- **No USB stack.** USB keyboards and mice only work if the firmware emulates
+  PS/2 devices. Many PCs do this when booting in legacy (BIOS/CSM) mode; with
+  UEFI boot the emulation often stops once the operating system takes over, so
+  a PS/2 keyboard and mouse (or the serial console) may be required.
 - **No NVMe driver.** Fresh OS can boot from an NVMe drive through the firmware,
   but `/data` is only persistent on SATA/IDE disks (USB sticks are read by the
   firmware at boot, so `/data` is not available when booting from USB).
   Without a supported disk, `/data` falls back to RAM and a message says so.
-- Single CPU core is used; no networking, sound or graphical desktop.
+- Single CPU core is used; no networking or sound. The desktop needs a linear
+  framebuffer (any VESA/GOP mode with 32 bits per pixel); without one the OS
+  stays in text mode.
 - The 8259 PIC is used for interrupts (no APIC), which every PC chipset still
   provides.
-- US keyboard layout only; text console only (8x16 font, ASCII).
+- US keyboard layout only; text is 8x16 pixels, ASCII only; one fixed screen mode (chosen at boot, 1024x768 preferred).
 - FreshFS has no journal: after a power cut it is repaired by a full check at
   the next boot, and data written in the last moments before the cut may be lost
   (files that were saved and synced, e.g. by `edit`, are safe).

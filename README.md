@@ -22,13 +22,17 @@ Fresh OS 0.1.0
   own `BOOTX64.EFI`).
 - **Kernel**: x86-64 long mode, paging with a higher-half kernel, preemptive
   multitasking of user processes, memory protection (user/kernel separation,
-  no-execute data), 37 system calls.
+  no-execute data), pseudo-terminals, 42 system calls.
 - **Drivers**: framebuffer text console (original 8x16 font, ANSI colours),
-  VGA text fallback, PS/2 keyboard, serial port, AHCI (SATA) and IDE disks,
+  VGA text fallback, PS/2 keyboard and mouse, serial port, AHCI (SATA) and IDE disks,
   PCI, ACPI power-off/reboot, real-time clock.
 - **FreshFS**: an original on-disk file system with crash recovery: the kernel
   checks and repairs it automatically after a power cut. Files in `/data` are
   stored on disk; the rest of the tree lives in RAM.
+- **Graphical desktop**: movable windows, a taskbar with start menu and clock,
+  desktop icons, mouse and keyboard, and apps: Terminal (as many as you like,
+  each running a real shell), Files, System Monitor and About. The text console
+  is still there behind it (and on the serial port).
 - **Shell** with line editing, history, Tab completion, pipes, redirection,
   `;` `&&` `||`, background jobs, variables, wildcards and scripts.
 - **Programs**: `ls cat cp mv rm mkdir rmdir touch echo wc head tail grep hexdump
@@ -53,7 +57,12 @@ make run        # boot in QEMU with BIOS firmware (serial console in the termina
 make run-uefi   # boot in QEMU with UEFI firmware (OVMF)
 ```
 
-Type `help` at the prompt. Use `shutdown` to power off safely.
+Fresh OS starts into its desktop. Open more terminals from the start menu
+("Fresh" button) or with Ctrl+Alt+T; Alt+Tab switches windows, Alt+F4 closes
+one. "Exit to console" returns to the full-screen text console (type `desktop`
+to come back). Type `help` in a terminal for the commands. Use **Shut down**
+in the start menu (or `shutdown`) to power off safely. To boot to the text
+console instead, create `/etc/nogui` in the initrd (`rootfs/etc/nogui`).
 
 ### Running on a real PC
 

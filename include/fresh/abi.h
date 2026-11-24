@@ -46,7 +46,12 @@
 #define SYS_TRUNCATE 34
 #define SYS_YIELD 35
 #define SYS_TEST 36 /* kernel diagnostics hooks used by the test suite */
-#define SYS_COUNT 37
+#define SYS_FB_ACQUIRE 37 /* take over the screen and input devices (GUI) */
+#define SYS_FB_RELEASE 38
+#define SYS_INPUT_READ 39
+#define SYS_PTY_OPEN 40
+#define SYS_PTY_RESIZE 41
+#define SYS_COUNT 42
 
 /* error codes (returned negated) */
 #define EPERM 1
@@ -175,8 +180,47 @@ struct fresh_spawn {
 #define TTY_MODE_COOKED 0
 #define TTY_MODE_RAW 1
 
+/* SYS_FB_ACQUIRE: the framebuffer is mapped into the caller at addr; pixels
+ * are 32-bit with the given bit positions for red, green and blue */
+struct fresh_fbinfo {
+    uint64_t addr;
+    uint32_t width, height, pitch, bpp;
+    uint8_t red_pos, green_pos, blue_pos, pad;
+    uint32_t reserved;
+};
+
+/* SYS_INPUT_READ(events, max, timeout_ms) returns the number of events */
+#define INPUT_KEY 1
+#define INPUT_MOUSE 2
+struct fresh_input_event {
+    uint32_t type;
+    uint32_t key;     /* KEY_* or the ASCII code */
+    uint32_t ch;      /* ASCII character (0 if none) */
+    uint32_t mods;    /* MOD_* */
+    int32_t dx, dy;   /* mouse motion, y grows downwards */
+    uint32_t buttons; /* MOUSE_* currently pressed */
+    uint32_t reserved;
+};
+#define KEY_UP 0x101
+#define KEY_DOWN 0x102
+#define KEY_LEFT 0x103
+#define KEY_RIGHT 0x104
+#define KEY_HOME 0x105
+#define KEY_END 0x106
+#define KEY_PGUP 0x107
+#define KEY_PGDN 0x108
+#define KEY_INSERT 0x109
+#define KEY_DELETE 0x10A
+#define KEY_F1 0x111 /* .. KEY_F1 + 11 */
+#define MOD_SHIFT 1
+#define MOD_CTRL 2
+#define MOD_ALT 4
+#define MOUSE_LEFT 1
+#define MOUSE_RIGHT 2
+#define MOUSE_MIDDLE 4
+
 /* SYS_TEST operations */
-#define TEST_FREE_PAGES 1  /* returns number of free physical pages      */
+#define TEST_FREE_PAGES 1  /* free physical pages (incl. heap-cached ones) */
 #define TEST_HEAP_USED 2   /* returns bytes allocated in the kernel heap */
 #define TEST_SELFTEST 3    /* run in-kernel self tests, returns failures */
 #define TEST_PANIC 4       /* trigger a kernel panic (only in test mode) */
